@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Snap Startup
+Comment=Abre aplicativos com gesto de snap
+Exec=python3 /home/user/OlaMundo/snap_startup.py
+Icon=utilities-terminal
+Terminal=false
+NoDisplay=false
+Categories=Utility;
