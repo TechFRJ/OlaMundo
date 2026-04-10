@@ -9,16 +9,24 @@ Quando o usuário estala o dedo, o programa:
 """
 
 import cv2
-import mediapipe as mp
 import pyttsx3
 import subprocess
 import time
 import sys
 from datetime import datetime
 
+try:
+    from mediapipe import solutions
+    from mediapipe.framework.formats import landmark_pb2
+    import mediapipe as mp
+    mp_hands = solutions.hands
+    mp_drawing = solutions.drawing_utils
+except (ImportError, AttributeError):
+    print("❌ Erro ao importar MediaPipe. Tentando reinstalar...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "mediapipe"], check=True)
+    sys.exit(1)
+
 # Inicializar MediaPipe
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
