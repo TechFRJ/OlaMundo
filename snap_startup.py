@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Programa de startup com detecção de gesto snap (estalar dedos).
-Quando o usuário estala o dedo, o programa:
+Programa de startup com detecção de movimento de mão (alternativa simplificada).
+Quando detecta movimento rápido de mão, o programa:
 1. Verifica a hora
 2. Faz uma saudação apropriada (Bom dia, Boa tarde, Boa noite)
 3. Abre Brave e VSCode
@@ -14,34 +14,16 @@ import subprocess
 import time
 import sys
 from datetime import datetime
-
-try:
-    from mediapipe import solutions
-    from mediapipe.framework.formats import landmark_pb2
-    import mediapipe as mp
-    mp_hands = solutions.hands
-    mp_drawing = solutions.drawing_utils
-except (ImportError, AttributeError):
-    print("❌ Erro ao importar MediaPipe. Tentando reinstalar...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "mediapipe"], check=True)
-    sys.exit(1)
-
-# Inicializar MediaPipe
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
-)
+import numpy as np
 
 # Inicializar text-to-speech
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-
-# Variáveis para detectar snap
-snap_detected = False
-last_snap_time = 0
-snap_cooldown = 1.0  # Esperar 1 segundo entre snaps
+try:
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 150)
+    VOICE_AVAILABLE = True
+except Exception as e:
+    print(f"⚠️ Aviso: Síntese de voz não disponível: {e}")
+    VOICE_AVAILABLE = False
 
 def get_greeting():
     """Retorna a saudação apropriada baseada na hora"""
@@ -57,113 +39,113 @@ def get_greeting():
 def speak(text):
     """Fala o texto usando síntese de voz"""
     print(f"[Falando] {text}")
-    engine.say(text)
-    engine.runAndWait()
+    if VOICE_AVAILABLE:
+        try:
+            engine.say(text)
+            engine.runAndWait()
+        except Exception as e:
+            print(f"Erro ao falar: {e}")
+    else:
+        # Usar espeak diretamente se pyttsx3 não funcionar
+        try:
+            subprocess.run(['espeak', text], timeout=5)
+        except Exception as e:
+            print(f"Erro ao usar espeak: {e}")
 
 def open_applications():
     """Abre Brave e VSCode"""
     print("[Abrindo] Brave...")
-    try:
-        subprocess.Popen(['brave-browser'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        print("Brave não encontrado. Tentando alternativas...")
+    for cmd in ['brave-browser', 'brave']:
         try:
-            subprocess.Popen(['brave'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            break
         except FileNotFoundError:
-            print("Aviso: Brave não encontrado no sistema")
+            continue
+    else:
+        print("Aviso: Brave não encontrado no sistema")
 
     time.sleep(1)
 
     print("[Abrindo] VSCode...")
     try:
-        subprocess.Popen(['code'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen('code', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         print("Aviso: VSCode não encontrado no sistema")
 
-def detect_snap(landmarks):
+def detect_hand_motion(prev_frame, curr_frame, threshold=1000000):
     """
-    Detecta gesto de estalar dedos (snap).
-    Snap é quando o dedo indicador e polegar se tocam rapidamente.
+    Detecta movimento significativo na imagem (possível snap).
+    Usa diferença de frames como indicador.
     """
-    if landmarks is None or len(landmarks) < 21:
+    if prev_frame is None:
         return False
 
-    # Pontos chave: polegar (4), indicador (8)
-    thumb_tip = landmarks[4]
-    index_tip = landmarks[8]
-    index_pip = landmarks[6]
+    # Converter para escala de cinza
+    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
 
-    # Calcular distância entre polegar e indicador
-    thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
-    index_x, index_y = index_tip.x, index_tip.y
+    # Calcular diferença
+    frame_diff = cv2.absdiff(prev_gray, curr_gray)
 
-    distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
+    # Aplicar threshold
+    _, thresh = cv2.threshold(frame_diff, 30, 255, cv2.THRESH_BINARY)
 
-    # Se os dedos estão muito próximos (distância < 0.05), é um snap
-    return distance < 0.05
+    # Contar pixels significativos
+    motion_count = np.sum(thresh > 0)
+
+    return motion_count > threshold
 
 def main():
     """Função principal"""
-    global snap_detected, last_snap_time
-
-    print("Iniciando detector de snap...")
-    print("Pressione ESC para sair. Estale o dedo para ativar!")
+    print("🎯 Snap Startup - Versão Alternativa (Detecção de Movimento)")
+    print("Aproxime a mão da câmera e faça um movimento rápido para ativar!")
+    print("Pressione ESC para sair.\n")
 
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("Erro: Não foi possível acessar a câmera")
+        print("❌ Erro: Não foi possível acessar a câmera")
         sys.exit(1)
+
+    prev_frame = None
+    motion_count = 0
+    motion_threshold = 5  # Detectar movimento 5 frames seguidos
 
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("Erro ao ler frame da câmera")
+                print("❌ Erro ao ler frame da câmera")
                 break
 
-            # Espelhar a imagem para melhor UX
+            # Espelhar a imagem
             frame = cv2.flip(frame, 1)
 
-            # Converter BGR para RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Detectar movimento
+            if detect_hand_motion(prev_frame, frame):
+                motion_count += 1
+                print(f"🤚 Movimento detectado! ({motion_count}/{motion_threshold})", end='\r')
 
-            # Processar mãos
-            results = hands.process(rgb_frame)
+                if motion_count >= motion_threshold:
+                    print("\n\n✨ [SNAP DETECTADO!]")
+                    cap.release()
+                    cv2.destroyAllWindows()
 
-            # Desenhar mãos
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(
-                        frame,
-                        hand_landmarks,
-                        mp_hands.HAND_CONNECTIONS
-                    )
+                    # Saudação
+                    greeting = get_greeting()
+                    speak(greeting)
 
-                    # Detectar snap
-                    if detect_snap(hand_landmarks.landmark):
-                        current_time = time.time()
-                        if current_time - last_snap_time > snap_cooldown:
-                            snap_detected = True
-                            last_snap_time = current_time
+                    # Abrir aplicativos
+                    open_applications()
 
-                            # Executa ações do snap
-                            print("\n[SNAP DETECTADO!]")
-                            cap.release()
-                            cv2.destroyAllWindows()
-
-                            # Saudação
-                            greeting = get_greeting()
-                            speak(greeting)
-
-                            # Abrir aplicativos
-                            open_applications()
-
-                            print("Programa finalizado!")
-                            return
+                    print("✓ Programa finalizado!")
+                    return
+            else:
+                motion_count = 0
 
             # Mostrar frame
             cv2.imshow('Snap Detector', frame)
+            prev_frame = frame.copy()
 
             # ESC para sair
             key = cv2.waitKey(1) & 0xFF

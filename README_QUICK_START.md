@@ -48,6 +48,14 @@ Depois execute com:
 ./run.sh
 ```
 
+## Nota sobre a Versão
+
+A versão atual usa **detecção de movimento** em vez de MediaPipe, o que:
+- ✅ Funciona em mais sistemas
+- ✅ Menos dependências pesadas
+- ✅ Compatível com Python 3.11+
+- ✅ Detecta movimento rápido de mão na câmera
+
 ## Opção 4: Via APT (Menos Recomendado)
 
 Se preferir instalar globalmente (requer --break-system-packages):
